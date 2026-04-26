@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CrisisSync AI</title>
+
+  <style>
+    body {
+      font-family: Arial;
+      background: #0f172a;
+      color: white;
+      padding: 20px;
+    }
+
+    h2 { color: #38bdf8; }
+
+    input {
+      padding: 10px;
+      width: 300px;
+      border-radius: 8px;
+      border: none;
+      margin-right: 10px;
+    }
+
+    button {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+    }
+
+    .send { background: #22c55e; }
+    .voice { background: #3b82f6; margin-left: 5px; }
+
+    .card {
+      background: #1e293b;
+      padding: 15px;
+      margin-top: 10px;
+      border-radius: 10px;
+    }
+
+    .critical { border-left: 6px solid red; }
+    .medium { border-left: 6px solid orange; }
+    .low { border-left: 6px solid green; }
+
+    .result-box {
+      background: #020617;
+      padding: 10px;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+
+    #criticalAlert {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      background: red;
+      color: white;
+      text-align: center;
+      padding: 15px;
+      font-size: 22px;
+      font-weight: bold;
+      z-index: 999;
+    }
+  </style>
+</head>
+
+<body>
+
+<div id="criticalAlert">🚨 CRITICAL ALERT 🚨</div>
+
+<h2>🚨 CrisisSync AI Dashboard</h2>
+
+<input id="msg" placeholder="Describe emergency..." />
+<button class="send" onclick="send()">Send</button>
+<button class="voice" onclick="startVoice()">🎤</button>
+
+<h3>🧠 AI Result</h3>
+<div id="result" class="result-box">Waiting...</div>
+
+<h3>📍 Live Incidents</h3>
+<div id="list"></div>
+
+<script>
+function startVoice() {
+  const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+  recognition.lang = "en-US";
+
+  recognition.onresult = function(event) {
+    document.getElementById("msg").value =
+      event.results[0][0].transcript;
+  };
+
+  recognition.start();
+}
+
+async function send() {
+  const message = document.getElementById("msg").value;
+
+  document.getElementById("result").innerText = "⚡ AI Processing...";
+
+  const res = await fetch("http://localhost:3000/incident", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message })
+  });
+
+  const data = await res.json();
+
+  document.getElementById("result").innerText =
+    JSON.stringify(data, null, 2);
+
+  // 🚨 CRITICAL ALERT MODE
+  if (data.severity === "critical") {
+    const alert = document.getElementById("criticalAlert");
+    alert.style.display = "block";
+
+    setInterval(() => {
+      alert.style.background =
+        alert.style.background === "red" ? "#7f1d1d" : "red";
+    }, 400);
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  load();
+}
+
+async function load() {
+  const res = await fetch("http://localhost:3000/incidents");
+  const data = await res.json();
+
+  document.getElementById("list").innerHTML =
+    data.reverse().map(i => `
+      <div class="card ${i.severity}">
+        <h3>🔥 ${i.type.toUpperCase()}</h3>
+        <p><b>Severity:</b> ${i.severity}</p>
+        <p><b>Location:</b> ${i.location}</p>
+        <p><b>Message:</b> ${i.raw_message}</p>
+      </div>
+    `).join("");
+}
+
+load();
+</script>
+
+</body>
+</html>
