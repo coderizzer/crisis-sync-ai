@@ -7,56 +7,38 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ✅ ROOT ROUTE (Fixes "Cannot GET /")
+app.get("/", (req, res) => {
+  res.send("🚨 CrisisSync AI Backend is Running!");
+});
+
+// ✅ INIT GEMINI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 let incidents = [];
 
-// 🔎 SIMPLE LOCATION EXTRACTOR
-function extractLocation(message) {
-  const words = message.split(" ");
-  return words.slice(-3).join(" ");
-}
-
-// 🔥 HYBRID AI + RULE SYSTEM (VERY IMPORTANT)
+// 🔥 SMART AI FUNCTION (UPGRADED)
 async function classifyEmergency(message) {
-  const msg = message.toLowerCase();
-
-  // 🚨 RULE-BASED (NEVER FAIL)
-  if (msg.includes("fire") || msg.includes("burn") || msg.includes("smoke")) {
-    return {
-      type: "fire",
-      location: extractLocation(message),
-      severity: msg.includes("trapped") ? "critical" : "medium",
-      summary: "Fire emergency detected"
-    };
-  }
-
-  if (msg.includes("not breathing") || msg.includes("unconscious")) {
-    return {
-      type: "medical",
-      location: extractLocation(message),
-      severity: "critical",
-      summary: "Critical medical emergency"
-    };
-  }
-
-  if (msg.includes("gun") || msg.includes("weapon") || msg.includes("attack")) {
-    return {
-      type: "threat",
-      location: extractLocation(message),
-      severity: "critical",
-      summary: "Security threat detected"
-    };
-  }
-
-  // 🧠 GEMINI FALLBACK (SMART CASES)
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+    });
 
     const prompt = `
-Classify emergency.
+You are an advanced emergency classification AI.
 
-Return ONLY JSON:
+Analyze the message and return STRICT JSON ONLY.
+
+Rules:
+- Detect type: fire, medical, threat, accident, flood, other
+- Detect severity:
+   critical = life-threatening, fire, trapped, explosion, weapons
+   medium = injury, risk, unstable situation
+   low = minor issue
+- Extract location if mentioned
+- Be intelligent, not literal
+
+Output format:
 {
 "type": "",
 "location": "",
@@ -70,11 +52,13 @@ Message: "${message}"
     const result = await model.generateContent(prompt);
     let text = result.response.text();
 
+    // 🧹 CLEAN RESPONSE
     let cleaned = text
       .replace(/```json/g, "")
       .replace(/```/g, "")
       .trim();
 
+    // Extract JSON safely
     let start = cleaned.indexOf("{");
     let end = cleaned.lastIndexOf("}");
 
@@ -82,42 +66,77 @@ Message: "${message}"
       cleaned = cleaned.substring(start, end + 1);
     }
 
-    return JSON.parse(cleaned);
+    let parsed = JSON.parse(cleaned);
+
+    // ✅ FALLBACK LOGIC (VERY IMPORTANT)
+    if (!parsed.type || parsed.type === "other") {
+      const msg = message.toLowerCase();
+
+      if (msg.includes("fire") || msg.includes("burn")) {
+        parsed.type = "fire";
+        parsed.severity = "critical";
+      }
+
+      if (msg.includes("accident") || msg.includes("crash")) {
+        parsed.type = "accident";
+        parsed.severity = "critical";
+      }
+
+      if (msg.includes("attack") || msg.includes("weapon")) {
+        parsed.type = "threat";
+        parsed.severity = "critical";
+      }
+    }
+
+    return parsed;
 
   } catch (err) {
-    console.log("AI ERROR:", err);
+    console.log("❌ AI ERROR:", err);
 
     return {
       type: "other",
       location: "unknown",
       severity: "low",
-      summary: message
+      summary: message,
     };
   }
 }
 
-// 🟥 POST
+// 🟥 POST INCIDENT
 app.post("/incident", async (req, res) => {
-  const { message } = req.body;
+  try {
+    const { message } = req.body;
 
-  const aiData = await classifyEmergency(message);
+    if (!message) {
+      return res.status(400).json({ error: "Message required" });
+    }
 
-  const incident = {
-    id: Date.now(),
-    raw_message: message,
-    ...aiData
-  };
+    const aiData = await classifyEmergency(message);
 
-  incidents.push(incident);
-  res.json(incident);
+    const incident = {
+      id: Date.now(),
+      raw_message: message,
+      ...aiData,
+    };
+
+    incidents.push(incident);
+
+    res.json(incident);
+
+  } catch (err) {
+    console.log("❌ SERVER ERROR:", err);
+    res.status(500).json({ error: "Server failed" });
+  }
 });
 
-// 🟩 GET
+// 🟩 GET INCIDENTS
 app.get("/incidents", (req, res) => {
   res.json(incidents);
 });
 
-// 🚀 START
-app.listen(3000, () => {
-  console.log("🚀 Server running at http://localhost:3000");
+// ✅ PORT FIX (Vercel / Cloud)
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("🚀 Server running on port " + PORT);
 });
